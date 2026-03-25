@@ -1,6 +1,8 @@
 services:
   socks5_proxy:
-    build: .
+    build:
+      context: .
+      dockerfile: src/Dockerfile
     container_name: socks5_proxy
     ports:
       - "1080:1080"
