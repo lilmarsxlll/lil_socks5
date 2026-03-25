@@ -1,0 +1,7 @@
+services:
+  socks5_proxy:
+    build: .
+    container_name: socks5_proxy
+    ports:
+      - "1080:1080"
+    restart: unless-stopped
