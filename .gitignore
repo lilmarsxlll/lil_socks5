@@ -1,0 +1,17 @@
+.env
+/.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Linter cache
+.ruff_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# Logs
+/logs/
+*.log
+
