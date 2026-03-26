@@ -1,7 +1,7 @@
 services:
   socks5_proxy:
     build:
-      context: .
+      context: ./src
     container_name: socks5_proxy
     ports:
       - "1080:1080"

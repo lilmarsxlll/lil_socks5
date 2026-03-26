@@ -2,8 +2,8 @@ import asyncio
 import socket
 import struct
 
-from src.const import MAX_CONNECTIONS, BUFFER_SIZE, CONNECTION_TIMEOUT
-from src.logging_config import get_logger, setup_logging
+from const import MAX_CONNECTIONS, BUFFER_SIZE, CONNECTION_TIMEOUT
+from logging_config import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)
@@ -30,10 +30,6 @@ async def pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             await writer.drain()
     except (asyncio.TimeoutError, ConnectionResetError):
         pass
-    finally:
-        writer.close()
-        await writer.wait_closed()
-        logger.info("Closing pipe connection.")
 
 
 async def handle_socks5(
@@ -47,9 +43,9 @@ async def handle_socks5(
     """
     try:
         data = initial_byte + await reader.read(1)
-        ver, nmethods = struct.unpack("!BB", data)
-        logger.debug(f"Version: {ver}, Methods: {nmethods}")
-        await reader.read(nmethods)
+        ver, methods = struct.unpack("!BB", data)
+        logger.debug(f"Version: {ver}, Methods: {methods}")
+        await reader.readexactly(methods)
 
         writer.write(b"\x05\x00")
         await writer.drain()
@@ -58,6 +54,15 @@ async def handle_socks5(
             reader.readexactly(4), timeout=CONNECTION_TIMEOUT
         )
         ver, cmd, _, atyp = struct.unpack("!BBBB", header)
+
+        if cmd != 1:
+            logger.warning(f"Unsupported SOCKS5 command: {cmd}")
+            writer.write(struct.pack("!BBBB4sH",5,7,0,1, b"\x00\x00\x00\x00", 0))
+            await writer.drain()
+
+            writer.close()
+            await writer.wait_closed()
+            return
 
         if atyp == 1:
             addr_bytes = await reader.readexactly(4)
@@ -77,8 +82,17 @@ async def handle_socks5(
         port_bytes = await reader.readexactly(2)
         port = struct.unpack("!H", port_bytes)[0]
 
-        remote_reader, remote_writer = await asyncio.open_connection(address, port)
-        logger.info(f"Connected to {address}:{port}")
+        try:
+            remote_reader, remote_writer = await asyncio.open_connection(address, port)
+        except Exception as e:
+            logger.error(f"Connection failed: {e}")
+            writer.write(struct.pack("!BBBB4sH",5,5,0,1, b"\x00\x00\x00\x00", 0))
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        logger.info(f"Connected to the requested address")
 
         writer.write(struct.pack("!BBBB4sH", 5, 0, 0, 1, b"\x00\x00\x00\x00", 0))
         await writer.drain()
@@ -95,7 +109,16 @@ async def handle_socks5(
 
         await asyncio.gather(*pending, return_exceptions=True)
 
-        logger.info(f"Connection with {address}:{port} finished.")
+        remote_writer.close()
+        writer.close()
+        await remote_writer.wait_closed()
+        await writer.wait_closed()
+
+
+        logger.info(f"Connection with requested address finished.")
+
+    except asyncio.IncompleteReadError:
+        logger.debug("Client disconnected.")
 
     except Exception as e:
         logger.error(f"Error: {e}")
